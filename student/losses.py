@@ -42,17 +42,45 @@ def rollout_loss(model, states: torch.Tensor, actions: torch.Tensor, normalizer,
     return F.mse_loss(pred_norm, target_norm)
 
 
-def compute_loss(model, batch: dict[str, torch.Tensor], normalizer, cfg: dict):
+# def compute_loss(model, batch: dict[str, torch.Tensor], normalizer, cfg: dict):
+#     loss_cfg = cfg["loss"]
+#     states = batch["states"]
+#     actions = batch["actions"]
+#     one = one_step_delta_loss(model, states, actions, normalizer)
+#     horizon = int(loss_cfg.get("rollout_train_horizon", 5))
+#     warmup = int(cfg["eval"].get("warmup_steps", 5))
+#     roll = rollout_loss(model, states, actions, normalizer, warmup_steps=warmup, horizon=horizon)
+#     total = float(loss_cfg.get("one_step_weight", 1.0)) * one + float(loss_cfg.get("rollout_weight", 0.3)) * roll
+#     return total, {
+#         "loss/total": float(total.detach().cpu()),
+#         "loss/one_step": float(one.detach().cpu()),
+#         "loss/rollout": float(roll.detach().cpu()),
+#     }
+
+def compute_loss(model, batch: dict[str, torch.Tensor], normalizer, cfg: dict, update: int = 0, total_updates: int = 1):
     loss_cfg = cfg["loss"]
     states = batch["states"]
     actions = batch["actions"]
+
     one = one_step_delta_loss(model, states, actions, normalizer)
-    horizon = int(loss_cfg.get("rollout_train_horizon", 5))
-    warmup = int(cfg["eval"].get("warmup_steps", 5))
-    roll = rollout_loss(model, states, actions, normalizer, warmup_steps=warmup, horizon=horizon)
-    total = float(loss_cfg.get("one_step_weight", 1.0)) * one + float(loss_cfg.get("rollout_weight", 0.3)) * roll
+
+    warmup = int(cfg["eval"].get("warmup_steps", 10))
+    max_horizon = int(loss_cfg.get("rollout_train_horizon", 53))
+    min_horizon = int(loss_cfg.get("rollout_min_horizon", 5))
+
+    progress = update / max(1, total_updates)
+    horizon = min_horizon + max(0, int(progress * (max_horizon - min_horizon)))
+
+    roll = rollout_loss(model, states, actions, normalizer,
+                        warmup_steps=warmup, horizon=horizon)
+
+    total = float(loss_cfg.get("one_step_weight", 2.0)) * one \
+          + float(loss_cfg.get("rollout_weight", 0.5)) * roll
+
     return total, {
         "loss/total": float(total.detach().cpu()),
         "loss/one_step": float(one.detach().cpu()),
         "loss/rollout": float(roll.detach().cpu()),
+        "loss/horizon": horizon,
+        "loss/max_horizon": float(max_horizon),
     }

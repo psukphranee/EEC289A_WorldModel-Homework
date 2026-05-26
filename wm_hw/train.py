@@ -45,13 +45,19 @@ def _batch(
     }
 
 
-def _compute_loss(model_name: str, model, batch: dict[str, torch.Tensor], normalizer: Normalizer, cfg: dict[str, Any]):
+# def _compute_loss(model_name: str, model, batch: dict[str, torch.Tensor], normalizer: Normalizer, cfg: dict[str, Any]):
+#     if model_name != "student":
+#         raise KeyError(f"Unknown model '{model_name}'. This release trains only the student starter model.")
+#     from student.losses import compute_loss
+
+#     return compute_loss(model, batch, normalizer, cfg)
+
+def _compute_loss(model_name: str, model, batch, normalizer, cfg, update=0, total_updates=1):
     if model_name != "student":
         raise KeyError(f"Unknown model '{model_name}'. This release trains only the student starter model.")
     from student.losses import compute_loss
-
-    return compute_loss(model, batch, normalizer, cfg)
-
+    return compute_loss(model, batch, normalizer, cfg,
+                        update=update, total_updates=total_updates)
 
 def _checkpoint_score(metrics: dict[str, Any], metric_name: str) -> float:
     key = metric_name.split("/", 1)[-1]
@@ -96,10 +102,14 @@ def train(config_path: str | Path, model_name: str, dataset_dir: str | Path, out
     best_score: float | None = None
     best_metrics: dict[str, float] = {}
     print(f"[train] model={model_name} device={device} updates={updates} smoke={smoke}")
+
     for update in range(1, updates + 1):
         indices = rng.integers(0, len(train_data["states"]), size=batch_size)
         batch = _batch(train_data, indices, device, sequence_length=sequence_length, rng=rng)
-        loss, metrics = _compute_loss(model_name, model, batch, normalizer, cfg)
+
+        # loss, metrics = _compute_loss(model_name, model, batch, normalizer, cfg)
+        loss, metrics = _compute_loss(model_name, model, batch, normalizer, cfg, update=update, total_updates=updates)
+
         opt.zero_grad(set_to_none=True)
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), float(cfg["training"]["grad_clip_norm"]))
