@@ -5,16 +5,32 @@ import torch.nn.functional as F
 from .rollout import open_loop_rollout
 
 
-def one_step_delta_loss(model, states: torch.Tensor, actions: torch.Tensor, normalizer) -> torch.Tensor:
+# def one_step_delta_loss(model, states: torch.Tensor, actions: torch.Tensor, normalizer) -> torch.Tensor:
+#     obs = states[:, :-1].reshape(-1, states.shape[-1])
+#     act = actions.reshape(-1, actions.shape[-1])
+#     target_delta = (states[:, 1:] - states[:, :-1]).reshape(-1, states.shape[-1])
+#     obs_norm = normalizer.normalize_obs(obs)
+#     act_norm = normalizer.normalize_act(act)
+#     target_norm = normalizer.normalize_delta(target_delta)
+#     pred_norm, _ = model(obs_norm, act_norm, None)
+#     return F.mse_loss(pred_norm, target_norm)
+
+def one_step_delta_loss(model, states: torch.Tensor, actions: torch.Tensor,
+                        normalizer, clean_states: torch.Tensor = None) -> torch.Tensor:
+    if clean_states is None:
+        clean_states = states
+
     obs = states[:, :-1].reshape(-1, states.shape[-1])
     act = actions.reshape(-1, actions.shape[-1])
-    target_delta = (states[:, 1:] - states[:, :-1]).reshape(-1, states.shape[-1])
-    obs_norm = normalizer.normalize_obs(obs)
-    act_norm = normalizer.normalize_act(act)
+
+    # targets computed from clean states
+    target_delta = (clean_states[:, 1:] - clean_states[:, :-1]).reshape(-1, clean_states.shape[-1])
+
+    obs_norm    = normalizer.normalize_obs(obs)
+    act_norm    = normalizer.normalize_act(act)
     target_norm = normalizer.normalize_delta(target_delta)
     pred_norm, _ = model(obs_norm, act_norm, None)
     return F.mse_loss(pred_norm, target_norm)
-
 
 def rollout_loss(model, states: torch.Tensor, actions: torch.Tensor, normalizer, warmup_steps: int, horizon: int) -> torch.Tensor:
     needed_states = int(warmup_steps) + int(horizon) + 1
@@ -67,23 +83,65 @@ def get_staged_horizon(update, stages):
     return horizon
 
 
+# def compute_loss(model, batch: dict[str, torch.Tensor], normalizer, cfg: dict,
+#                  update: int = 0, total_updates: int = 1):
+#     loss_cfg     = cfg["loss"]
+#     states       = batch["states"]
+#     actions      = batch["actions"]
+
+#     one = one_step_delta_loss(model, states, actions, normalizer)
+
+#     warmup       = int(cfg["eval"].get("warmup_steps", 10))
+#     min_horizon  = int(loss_cfg.get("rollout_min_horizon", 5))
+#     max_horizon  = int(loss_cfg.get("rollout_train_horizon", 60))
+#     num_stages   = int(loss_cfg.get("rollout_num_stages", 6))
+
+#     stages  = compute_stages(min_horizon, max_horizon, num_stages, total_updates)
+#     horizon = get_staged_horizon(update, stages)
+
+#     roll = rollout_loss(model, states, actions, normalizer,
+#                         warmup_steps=warmup, horizon=horizon)
+
+#     total = float(loss_cfg.get("one_step_weight", 1.0)) * one \
+#           + float(loss_cfg.get("rollout_weight", 0.7)) * roll
+
+#     return total, {
+#         "loss/total":       float(total.detach().cpu()),
+#         "loss/one_step":    float(one.detach().cpu()),
+#         "loss/rollout":     float(roll.detach().cpu()),
+#         "loss/horizon":     float(horizon),
+#         "loss/max_horizon": float(max_horizon),
+#     }
+
 def compute_loss(model, batch: dict[str, torch.Tensor], normalizer, cfg: dict,
                  update: int = 0, total_updates: int = 1):
-    loss_cfg     = cfg["loss"]
-    states       = batch["states"]
-    actions      = batch["actions"]
+    loss_cfg = cfg["loss"]
+    states  = batch["states"]
+    actions = batch["actions"]
 
-    one = one_step_delta_loss(model, states, actions, normalizer)
+    # noise augmentation — inputs are noisy, targets stay clean
+    obs_noise_sigma = float(loss_cfg.get("obs_noise_sigma", 0.0))
+    act_noise_sigma = float(loss_cfg.get("act_noise_sigma", 0.0))
+
+    if obs_noise_sigma > 0.0 or act_noise_sigma > 0.0:
+        noisy_states  = states  + torch.randn_like(states)  * obs_noise_sigma
+        noisy_actions = actions + torch.randn_like(actions) * act_noise_sigma
+        noisy_actions = noisy_actions.clamp(-3.0, 3.0)
+    else:
+        noisy_states  = states
+        noisy_actions = actions
+
+    one = one_step_delta_loss(model, noisy_states, noisy_actions, normalizer, states)
 
     warmup       = int(cfg["eval"].get("warmup_steps", 10))
     min_horizon  = int(loss_cfg.get("rollout_min_horizon", 5))
-    max_horizon  = int(loss_cfg.get("rollout_train_horizon", 60))
-    num_stages   = int(loss_cfg.get("rollout_num_stages", 6))
+    max_horizon  = int(loss_cfg.get("rollout_train_horizon", 70))
+    num_stages   = int(loss_cfg.get("rollout_num_stages", 23))
 
     stages  = compute_stages(min_horizon, max_horizon, num_stages, total_updates)
     horizon = get_staged_horizon(update, stages)
 
-    roll = rollout_loss(model, states, actions, normalizer,
+    roll = rollout_loss(model, noisy_states, noisy_actions, normalizer,
                         warmup_steps=warmup, horizon=horizon)
 
     total = float(loss_cfg.get("one_step_weight", 1.0)) * one \
