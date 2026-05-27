@@ -9,7 +9,7 @@ model:
 
 training:
   batch_size: 256
-  updates: 15000
+  updates: 30000
   smoke_updates: 120
   train_sequence_length: 91
   learning_rate: 1.0e-3
@@ -18,12 +18,12 @@ training:
   smoke_eval_every: 20
   val_horizon: 200
   max_val_windows: 128
-  checkpoint_metric: val/open_loop_rmse@horizon
+  checkpoint_metric: val/nMSE_AUC
   checkpoint_mode: min
 
 loss:
-  one_step_weight: 1.0
-  rollout_weight: .7
+  one_step_weight: .3
+  rollout_weight: 6.0
   rollout_min_horizon: 5
   rollout_train_horizon: 80
   rollout_num_stages: 4
