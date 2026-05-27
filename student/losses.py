@@ -3,6 +3,7 @@ from __future__ import annotations
 import torch
 import torch.nn.functional as F
 from .rollout import open_loop_rollout
+import math
 
 
 def one_step_delta_loss(model, states: torch.Tensor, actions: torch.Tensor, normalizer) -> torch.Tensor:
@@ -37,22 +38,36 @@ def rollout_loss(model, states: torch.Tensor, actions: torch.Tensor, normalizer,
     target_norm = normalizer.normalize_obs(targets)
     return F.mse_loss(pred_norm, target_norm)
 
+# linear
+# def compute_stages(min_horizon, max_horizon, num_stages, total_updates):
+#     """
+#     Compute staged curriculum boundaries automatically.
 
+#     Returns list of (start_update, horizon) pairs.
+#     """
+#     updates_per_stage = total_updates / num_stages
+#     horizon_step = (max_horizon - min_horizon) / (num_stages - 1)
+
+#     stages = []
+#     for i in range(num_stages):
+#         start_update = int(i * updates_per_stage)
+#         horizon = int(min_horizon + i * horizon_step)
+#         stages.append((start_update, horizon))
+
+#     return stages
+
+#cosine
 def compute_stages(min_horizon, max_horizon, num_stages, total_updates):
-    """
-    Compute staged curriculum boundaries automatically.
-
-    Returns list of (start_update, horizon) pairs.
-    """
     updates_per_stage = total_updates / num_stages
-    horizon_step = (max_horizon - min_horizon) / (num_stages - 1)
-
     stages = []
     for i in range(num_stages):
         start_update = int(i * updates_per_stage)
-        horizon = int(min_horizon + i * horizon_step)
+        progress = i / max(1, num_stages - 1)
+        # choose one:
+        # cosine:
+        cosine_progress = 0.5 * (1 - math.cos(math.pi * progress))
+        horizon = int(min_horizon + cosine_progress * (max_horizon - min_horizon))
         stages.append((start_update, horizon))
-
     return stages
 
 
