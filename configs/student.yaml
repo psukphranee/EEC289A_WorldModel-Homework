@@ -4,12 +4,12 @@ torch_num_threads: 1
 
 model:
   hidden_dim: 256
-  num_layers: 3
+  num_layers: 4
   use_gru: true
 
 training:
-  batch_size: 96
-  updates: 23000
+  batch_size: 128
+  updates: 7000
   smoke_updates: 120
   train_sequence_length: 91
   learning_rate: 1.0e-3
@@ -18,17 +18,15 @@ training:
   smoke_eval_every: 20
   val_horizon: 200
   max_val_windows: 128
-  checkpoint_metric: val/nMSE_AUC
-  checkpoint_mode: min
+  checkpoint_metric: val/VPT80@0.25
+  checkpoint_mode: max
 
 loss:
   one_step_weight: 1.0
-  rollout_weight: 0.8
+  rollout_weight: .7
   rollout_min_horizon: 5
-  rollout_train_horizon: 70
-  rollout_num_stages: 23
-  obs_noise_sigma: 0.02
-  act_noise_sigma: 0.05
+  rollout_train_horizon: 80
+  rollout_num_stages: 6
 
 eval:
   warmup_steps: 10
